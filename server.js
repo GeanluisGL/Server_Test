@@ -9,12 +9,22 @@ import path  from 'path';
 import cors from "cors";
 import emailRouter from "./email.js"
 import fs from 'fs/promises'
+import { v2 as cloudinary } from 'cloudinary';
 dotenv.config();
 const app = express();``
 const port = process.env.por || 5000;
 
 //middleware
-// // Configuración de Multer
+
+// Configura Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+
+
 // Configuración de Multer
     const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -49,6 +59,17 @@ app.use('/api', emailRouter)
 
 // Endpoint Servir imágenes 
 app.use('/uploads', express.static('uploads'));
+
+app.post('/upload', upload.single('image'), async (req, res) => {
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'productos', // Opcional: Organiza en carpetas
+    });
+    res.json({ url: result.secure_url });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 //Product - Crud API
 
