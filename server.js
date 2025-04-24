@@ -55,7 +55,9 @@ connectToDB();
 
 app.use("/confirmation", emailRouter); // Usar el endpoint en /api/send-email
 app.use('/api', emailRouter)
-
+// Limitar tamaño del body
+app.use(express.json({ limit: '10kb' }));
+ 
 
 // Endpoint Servir imágenes 
 app.use('/uploads', express.static('uploads'));
@@ -74,38 +76,74 @@ app.post('/upload', upload.single('image'), async (req, res) => {
 //Product - Crud API
 
 app.get("/product", async (req, res) => {
-    try {
-        const result = await CRUDadhair.find()
-        res.send({
-            success:true,
-            message: "CRUD list retreived successfully",
-            data: result,
-        })
-    } catch (error) {
-        res.send({
-            success:false,
-            message: "Failed to retreived CRUD list retreived successfully",
-            data: result,
-        })
-    }
+  try {
+    const products = await CRUDadhair.find({ status: true });
+    
+    // Procesar las imágenes para incluir la URL completa
+    const productsWithImageUrls = products.map(product => {
+      const productObj = product.toObject();
+      if (productObj.images) {
+        productObj.images = productObj.images.map(image => {
+          return image.startsWith('http') ? image : `${req.protocol}://${req.get('host')}${image}`;
+        });
+      }
+      return productObj;
+    });
+
+    res.json({
+      success: true,
+      message: "Lista de productos obtenida exitosamente",
+      data: productsWithImageUrls,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Error al obtener la lista de productos",
+      error: error.message,
+    });
+  }
 });
 
-app.get('/images/product/:productId', async (req, res) => {
+// Endpoint para obtener imágenes de un producto
+app.get('/product/:productId/images', async (req, res) => {
   try {
     const product = await CRUDadhair.findById(req.params.productId);
     
-    if (!product?.images?.length) {
-      return res.status(404).json({ error: 'No se encontraron imágenes para este producto' });
+    if (!product) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Producto no encontrado' 
+      });
     }
 
-const imagesUrls = product.images.map(image => {
-      return `${req.protocol}://${req.get('host')}/images/${image}`;
-});
+    if (!product.images || product.images.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'El producto no tiene imágenes' 
+      });
+    }
 
-    res.json(imagesUrls);
+    // Mapear las imágenes con la URL completa
+    const imagesWithUrls = product.images.map(image => {
+      // Si ya es una URL completa (como de Cloudinary), devolverla directamente
+      if (image.startsWith('http')) {
+        return image;
+      }
+      // Si es una ruta local, construir la URL completa
+      return `${req.protocol}://${req.get('host')}${image}`;
+    });
+
+    res.json({
+      success: true,
+      data: imagesWithUrls
+    });
   } catch (error) {
     console.error('Error al obtener imágenes:', error);
-    res.status(500).json({ error: 'Error del servidor al recuperar imágenes' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Error del servidor al recuperar imágenes' 
+    });
   }
 });
 
@@ -121,39 +159,47 @@ app.get('/images/:imageName', (req, res) => {
   });
 });
 
+// Endpoint para subir imágenes
 app.post('/product', upload.array('images', 5), async (req, res) => {
-    const productDetails = req.body; // Detalles del producto
-    const images = req.files; // Archivos de imágenes subidos
-  
-    try {
-      // Validación de imágenes
-      if (!images || images.length === 0) {
-        return res.status(400).send({
-          success: false,
-          message: 'Debe subir al menos una imagen',
-        });
-      }
-  
-      // Guardar las rutas de las imágenes en el objeto del producto
-      productDetails.images = images.map((file) => file.path);
-  
-      // Crear el producto en la base de datos
-      const result = await CRUDadhair.create(productDetails);
-  
-      res.send({
-        success: true,
-        message: 'Product created successfully',
-        data: result,
-      });
-    } catch (error) {
-      console.log(error);
-      res.status(500).send({
+  try {
+    const productDetails = req.body;
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
         success: false,
-        message: 'Failed to create product',
-        error: error.message,
+        message: 'Debe subir al menos una imagen',
       });
     }
-  }); 
+
+    // Subir imágenes a Cloudinary
+    const uploadPromises = req.files.map(file => {
+      return cloudinary.uploader.upload(file.path, {
+        folder: 'products' // Opcional: especificar una carpeta en Cloudinary
+      });
+    });
+
+    // Esperar a que todas las imágenes se suban
+    const uploadResults = await Promise.all(uploadPromises);
+    
+    // Guardar URLs seguras de las imágenes de Cloudinary
+    productDetails.images = uploadResults.map(result => result.secure_url);
+
+    const result = await CRUDadhair.create(productDetails);
+
+    res.status(201).json({
+      success: true,
+      message: 'Producto creado exitosamente',
+      data: result,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al crear producto',
+      error: error.message,
+    });
+  }
+});
 
 app.get("/product/:productId", async (req, res) => {
     const productId = req.params.productId
@@ -380,7 +426,6 @@ app.delete("/orders/delete/:ordersId", async (req, res) => {
         })
     }
 })
-
 
 
 app.listen(port, () => {
