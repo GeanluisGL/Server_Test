@@ -14,7 +14,9 @@ const OrderSchema = new Schema({
         TransferId: {type: String, require: true},
         FinalPrice : {type: String, require: true},
         images: { type: [String], default: [] },
-        createdAt : {type: Date, default: Date.now}      
+        createdAt : {type: Date, default: Date.now},  
+        status: {type:String, require: true}
+
         
 },  {
         timestamps: { createdAt: true, updatedAt: false }
